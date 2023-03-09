@@ -2,6 +2,8 @@
 #include <GameFramework/SpringArmComponent.h>
 #include <Camera/CameraComponent.h>
 #include "Bullet.h"
+#include <Blueprint/UserWidget.h>
+#include <Kismet/GameplayStatics.h>
 
 // Sets default values
 ATPSPlayer::ATPSPlayer()
@@ -40,6 +42,15 @@ ATPSPlayer::ATPSPlayer()
 		gunMeshComp->SetRelativeLocation(FVector(-14, 52, 120));
 	}
 
+	sniperGunComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SniperGunComp"));
+	sniperGunComp->SetupAttachment(GetMesh());
+	ConstructorHelpers::FObjectFinder<UStaticMesh> TempSniperMesh(TEXT("StaticMesh'/Game/SniperGun/sniper1.sniper1'"));
+	if (TempSniperMesh.Succeeded())
+	{
+		sniperGunComp->SetStaticMesh(TempSniperMesh.Object);
+		sniperGunComp->SetRelativeLocation(FVector(-22, 55, 120));
+		sniperGunComp->SetRelativeScale3D(FVector(0.15f));
+	}
 }
 
 // Called when the game starts or when spawned
@@ -47,6 +58,9 @@ void ATPSPlayer::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	_sniperUI = CreateWidget(GetWorld(), sniperUIFactory);
+
+	ChangeToSniperGun();
 }
 
 // Called every frame
@@ -69,6 +83,10 @@ void ATPSPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent
 
 	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Pressed, this, &ATPSPlayer::InputJump);
 	PlayerInputComponent->BindAction(TEXT("Fire"), IE_Pressed, this, &ATPSPlayer::InputFire);
+	PlayerInputComponent->BindAction(TEXT("GrenadeGun"), IE_Pressed, this, &ATPSPlayer::ChangeToGrenadeGun);
+	PlayerInputComponent->BindAction(TEXT("SniperGun"), IE_Pressed, this, &ATPSPlayer::ChangeToSniperGun);
+	PlayerInputComponent->BindAction(TEXT("Sniper"), IE_Pressed, this, &ATPSPlayer::SniperAim);
+	PlayerInputComponent->BindAction(TEXT("Sniper"), IE_Released, this, &ATPSPlayer::SniperAim);
 }
 
 void ATPSPlayer::Move()
@@ -112,6 +130,68 @@ void ATPSPlayer::InputJump()
 
 void ATPSPlayer::InputFire()
 {
-	FTransform firePosition = gunMeshComp->GetSocketTransform(TEXT("FirePosition"));
-	GetWorld()->SpawnActor<ABullet>(bulletFactory, firePosition);
+	if (bUsingGrenadeGun)
+	{
+		FTransform firePosition = gunMeshComp->GetSocketTransform(TEXT("FirePosition"));
+		GetWorld()->SpawnActor<ABullet>(bulletFactory, firePosition);
+	}
+	else
+	{
+		FVector startPos = tpsCamComp->GetComponentLocation();
+		FVector endPos = tpsCamComp->GetComponentLocation() + tpsCamComp->GetForwardVector() * 5000;
+		FHitResult hitInfo;
+		FCollisionQueryParams params;
+		params.AddIgnoredActor(this);
+		
+		// Channel 필터를 이용한 LineTrace 충돌 검출(충돌 정보, 시작 위치, 종료 위치, 검출 채널, 충돌 옵션)
+		bool bHit = GetWorld()->LineTraceSingleByChannel(hitInfo, startPos, endPos, ECC_Visibility, params);
+		if (bHit)
+		{
+			FTransform bulletTrans;
+			bulletTrans.SetLocation(hitInfo.ImpactPoint);
+			UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), bulletEffectFactory, bulletTrans);
+
+			auto hitComp = hitInfo.GetComponent();
+			if (hitComp && hitComp->IsSimulatingPhysics())
+			{
+				FVector force = -hitInfo.ImpactNormal * hitComp->GetMass() * 50000;
+				hitComp->AddForce(force);
+			}
+		}
+	}
+}
+
+void ATPSPlayer::ChangeToGrenadeGun()
+{
+	bUsingGrenadeGun = true;
+	sniperGunComp->SetVisibility(false);
+	gunMeshComp->SetVisibility(true);
+}
+
+void ATPSPlayer::ChangeToSniperGun()
+{
+	bUsingGrenadeGun = false;
+	sniperGunComp->SetVisibility(true);
+	gunMeshComp->SetVisibility(false);
+}
+
+void ATPSPlayer::SniperAim()
+{
+	if (bUsingGrenadeGun)
+	{
+		return;
+	}
+	
+	if (bSniperAim == false)
+	{
+		bSniperAim = true;
+		_sniperUI->AddToViewport();
+		tpsCamComp->SetFieldOfView(45.0f);
+	}
+	else
+	{
+		bSniperAim = false;
+		_sniperUI->RemoveFromParent();
+		tpsCamComp->SetFieldOfView(90.0f);
+	}
 }
