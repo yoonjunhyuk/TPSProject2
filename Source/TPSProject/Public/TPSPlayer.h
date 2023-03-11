@@ -83,5 +83,11 @@ public:
 	class UUserWidget* _crosshairUI;
 
 	void InputRun();
+
+	UPROPERTY(EditDefaultsOnly, Category = CameraMotion)
+	TSubclassOf<class UCameraShakeBase> cameraShake;
+
+	UPROPERTY(EditDefaultsOnly, Category = Sound)
+	class USoundBase* bulletSound;
 };
 
