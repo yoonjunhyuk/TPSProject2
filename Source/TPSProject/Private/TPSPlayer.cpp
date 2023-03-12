@@ -1,12 +1,8 @@
 #include "TPSPlayer.h"
 #include <GameFramework/SpringArmComponent.h>
 #include <Camera/CameraComponent.h>
-#include "Bullet.h"
-#include <Blueprint/UserWidget.h>
-#include <Kismet/GameplayStatics.h>
-#include "EnemyFSM.h"
-#include <GameFramework/CharacterMovementComponent.h>
-#include "PlayerAnim.h"
+#include "PlayerMove.h"
+#include "PlayerFire.h"
 
 // Sets default values
 ATPSPlayer::ATPSPlayer()
@@ -59,25 +55,15 @@ ATPSPlayer::ATPSPlayer()
 		sniperGunComp->SetRelativeScale3D(FVector(0.15f));
 	}
 
-	ConstructorHelpers::FObjectFinder<USoundBase> tempSound(TEXT("SoundWave'/Game/SniperGun/Rifle.Rifle'"));
-	if (tempSound.Succeeded())
-	{
-		bulletSound = tempSound.Object;
-	}
+	playerMove = CreateDefaultSubobject<UPlayerMove>(TEXT("PlayerMove"));
+	//playerFire = CreateDefaultSubobject<UPlayerFire>(TEXT("PlayerFire"));
 }
 
 // Called when the game starts or when spawned
 void ATPSPlayer::BeginPlay()   
 {
 	Super::BeginPlay();
-
-	GetCharacterMovement()->MaxWalkSpeed = walkSpeed;
 	
-	_sniperUI = CreateWidget(GetWorld(), sniperUIFactory);
-	_crosshairUI = CreateWidget(GetWorld(), crosshairUIFactory);
-	_crosshairUI->AddToViewport();
-
-	ChangeToSniperGun();
 }
 
 // Called every frame
@@ -85,7 +71,6 @@ void ATPSPlayer::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	Move();
 }
 
 // Called to bind functionality to input
@@ -93,154 +78,12 @@ void ATPSPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	PlayerInputComponent->BindAxis(TEXT("Turn"), this, &ATPSPlayer::Turn);
-	PlayerInputComponent->BindAxis(TEXT("LookUp"), this, &ATPSPlayer::LookUp);
-	PlayerInputComponent->BindAxis(TEXT("Horizontal"), this, &ATPSPlayer::InputHorizontal);
-	PlayerInputComponent->BindAxis(TEXT("Vertical"), this, &ATPSPlayer::InputVertical);
+	// 컴포넌트에서 입력 바인딩 처리 하도록 호출(델리게이트 사용)
+	onInputBindingDelegate.Broadcast(PlayerInputComponent);
 
-	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Pressed, this, &ATPSPlayer::InputJump);
-	PlayerInputComponent->BindAction(TEXT("Fire"), IE_Pressed, this, &ATPSPlayer::InputFire);
-	PlayerInputComponent->BindAction(TEXT("GrenadeGun"), IE_Pressed, this, &ATPSPlayer::ChangeToGrenadeGun);
-	PlayerInputComponent->BindAction(TEXT("SniperGun"), IE_Pressed, this, &ATPSPlayer::ChangeToSniperGun);
-	PlayerInputComponent->BindAction(TEXT("Sniper"), IE_Pressed, this, &ATPSPlayer::SniperAim);
-	PlayerInputComponent->BindAction(TEXT("Sniper"), IE_Released, this, &ATPSPlayer::SniperAim);
-	PlayerInputComponent->BindAction(TEXT("Run"), IE_Pressed, this, &ATPSPlayer::InputRun);
-	PlayerInputComponent->BindAction(TEXT("Run"), IE_Released, this, &ATPSPlayer::InputRun);
-}
-
-void ATPSPlayer::Move()
-{
-	// 플레이어 이동 처리, 등속 운동, P(결과 위치) = P0(현재 위치) + v(속도) * t(시간)
-	direction = FTransform(GetControlRotation()).TransformVector(direction);
+	// 컴포넌트에서 입력 바인딩 처리하도록 호출(종속적)
 	/*
-	FVector P0 = GetActorLocation();
-	FVector vt = direction * walkSpeed * DeltaTime;
-	FVector P = P0 + vt;
-	SetActorLocation(P);
+	playerMove->SetupInputBinding(PlayerInputComponent);
+	playerFire->SetupInputBinding(PlayerInputComponent);
 	*/
-	AddMovementInput(direction);
-	direction = FVector::ZeroVector;
-}
-
-void ATPSPlayer::Turn(float value)
-{
-	AddControllerYawInput(value);
-}
-
-void ATPSPlayer::LookUp(float value)
-{
-	AddControllerPitchInput(value);
-}
-
-void ATPSPlayer::InputHorizontal(float value)
-{
-	direction.Y = value;
-}
-
-void ATPSPlayer::InputVertical(float value)
-{
-	direction.X = value;
-}
-
-void ATPSPlayer::InputJump()
-{
-	Jump();
-}
-
-void ATPSPlayer::InputFire()
-{
-	UGameplayStatics::PlaySound2D(GetWorld(), bulletSound);
-
-	auto controller = GetWorld()->GetFirstPlayerController();
-	controller->PlayerCameraManager->StartCameraShake(cameraShake);
-
-	auto anim = Cast<UPlayerAnim>(GetMesh()->GetAnimInstance());
-	anim->PlayAttackAnim();
-
-	if (bUsingGrenadeGun)
-	{
-		FTransform firePosition = gunMeshComp->GetSocketTransform(TEXT("FirePosition"));
-		GetWorld()->SpawnActor<ABullet>(bulletFactory, firePosition);
-	}
-	else
-	{
-		FVector startPos = tpsCamComp->GetComponentLocation();
-		FVector endPos = tpsCamComp->GetComponentLocation() + tpsCamComp->GetForwardVector() * 5000;
-		FHitResult hitInfo;
-		FCollisionQueryParams params;
-		params.AddIgnoredActor(this);
-		
-		// Channel 필터를 이용한 LineTrace 충돌 검출(충돌 정보, 시작 위치, 종료 위치, 검출 채널, 충돌 옵션)
-		bool bHit = GetWorld()->LineTraceSingleByChannel(hitInfo, startPos, endPos, ECC_Visibility, params);
-		if (bHit)
-		{
-			FTransform bulletTrans;
-			bulletTrans.SetLocation(hitInfo.ImpactPoint);
-			UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), bulletEffectFactory, bulletTrans);
-
-			auto hitComp = hitInfo.GetComponent();
-			if (hitComp && hitComp->IsSimulatingPhysics())
-			{
-				FVector force = -hitInfo.ImpactNormal * hitComp->GetMass() * 50000;
-				hitComp->AddForce(force);
-			}
-
-			auto enemy = hitInfo.GetActor()->GetDefaultSubobjectByName(TEXT("FSM"));
-			if (enemy)
-			{
-				auto enemyFSM = Cast<UEnemyFSM>(enemy);
-				enemyFSM->OnDamageProcess();
-			}
-		}
-	}
-}
-
-void ATPSPlayer::ChangeToGrenadeGun()
-{
-	bUsingGrenadeGun = true;
-	sniperGunComp->SetVisibility(false);
-	gunMeshComp->SetVisibility(true);
-}
-
-void ATPSPlayer::ChangeToSniperGun()
-{
-	bUsingGrenadeGun = false;
-	sniperGunComp->SetVisibility(true);
-	gunMeshComp->SetVisibility(false);
-}
-
-void ATPSPlayer::SniperAim()
-{
-	if (bUsingGrenadeGun)
-	{
-		return;
-	}
-	
-	if (bSniperAim == false)
-	{
-		bSniperAim = true;
-		_sniperUI->AddToViewport();
-		tpsCamComp->SetFieldOfView(45.0f);
-		_crosshairUI->RemoveFromParent();
-	}
-	else
-	{
-		bSniperAim = false;
-		_sniperUI->RemoveFromParent();
-		tpsCamComp->SetFieldOfView(90.0f);
-		_crosshairUI->AddToViewport();
-	}
-}
-
-void ATPSPlayer::InputRun()
-{
-	auto movement = GetCharacterMovement();
-	if (movement->MaxWalkSpeed > walkSpeed)
-	{
-		movement->MaxWalkSpeed = walkSpeed;
-	}
-	else
-	{
-		movement->MaxWalkSpeed = runSpeed;
-	}
 }

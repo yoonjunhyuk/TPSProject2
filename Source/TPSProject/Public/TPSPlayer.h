@@ -6,10 +6,16 @@
 #include "GameFramework/Character.h"
 #include "TPSPlayer.generated.h"
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FInputBindingDelegate, class UInputComponent*);
+
 UCLASS()
 class TPSPROJECT_API ATPSPlayer : public ACharacter
 {
 	GENERATED_BODY()
+
+public:
+	// 입력 바인딩 델리게이트
+	FInputBindingDelegate onInputBindingDelegate;
 
 public:
 	// Sets default values for this character's properties
@@ -33,61 +39,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera)
 	class UCameraComponent* tpsCamComp;
 
-	void Turn(float value);
-	void LookUp(float value);
-
-	UPROPERTY(EditAnywhere, Category = PlayerSetting)
-	float walkSpeed = 200;
-
-	UPROPERTY(EditAnywhere, Category = PlayerSetting)
-	float runSpeed = 600;
-
-	FVector direction;
-
-	void InputHorizontal(float value);
-	void InputVertical(float value);
-
-	void InputJump();
-
-	void Move();
-
 	UPROPERTY(VisibleAnywhere, Category = GunMesh)
 	class USkeletalMeshComponent* gunMeshComp;
-
-	UPROPERTY(EditDefaultsOnly, Category = BulletFactory)
-	TSubclassOf<class ABullet> bulletFactory;
-
-	void InputFire();
 
 	UPROPERTY(VisibleAnywhere, Category = GunMesh)
 	class UStaticMeshComponent* sniperGunComp;
 
-	bool bUsingGrenadeGun = true;
-	void ChangeToGrenadeGun();
-	void ChangeToSniperGun();
+public:
+	UPROPERTY(VisibleAnywhere, Category = Component)
+	class UPlayerBaseComponent* playerMove;
 
-	void SniperAim();
-	bool bSniperAim = false;
-
-	UPROPERTY(EditDefaultsOnly, Category = SniperUI)
-	TSubclassOf<class UUserWidget> sniperUIFactory;
-
-	class UUserWidget* _sniperUI;
-
-	UPROPERTY(EditAnywhere, Category = BulletEffect)
-	class UParticleSystem* bulletEffectFactory;
-
-	UPROPERTY(EditDefaultsOnly, Category = SniperUI)
-	TSubclassOf<class UUserWidget> crosshairUIFactory;
-
-	class UUserWidget* _crosshairUI;
-
-	void InputRun();
-
-	UPROPERTY(EditDefaultsOnly, Category = CameraMotion)
-	TSubclassOf<class UCameraShakeBase> cameraShake;
-
-	UPROPERTY(EditDefaultsOnly, Category = Sound)
-	class USoundBase* bulletSound;
+	UPROPERTY(VisibleAnywhere, Category = Component)
+	class UPlayerBaseComponent* playerFire;
 };
 
